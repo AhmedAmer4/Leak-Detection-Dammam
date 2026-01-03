@@ -1,50 +1,60 @@
 import streamlit as st
 import pandas as pd
+import json
 import folium
 from streamlit_folium import st_folium
 import os
 
-# 1. إعداد الصفحة (لازم يكون أول سطر)
-st.set_page_config(page_title="مراقبة تسربات الدمام", layout="wide")
+# إعداد الصفحة
+st.set_page_config(page_title="تسربات الدمام", layout="wide")
 
 st.title("🚰 نظام مراقبة تسربات المياه - الدمام")
-st.write("---")
 
-# 2. فحص وجود الملفات على GitHub (تأكد من الأسماء دي بالظبط)
-csv_file = "water_leakage_data.csv"
-json_file = "dammam.json"
+# أسماء الملفات الجديدة (الإنجليزية)
+CSV_FILE = "data.csv"
+JSON_FILE = "map.json"
 
-# عرض حالة الملفات عشان نعرف المشكلة فين
+# فحص الملفات
 col1, col2 = st.columns(2)
 with col1:
-    if os.path.exists(csv_file):
-        st.success(f"✅ تم العثور على ملف البيانات: {csv_file}")
+    if os.path.exists(CSV_FILE):
+        st.success(f"✅ تم العثور على {CSV_FILE}")
     else:
-        st.error(f"❌ ملف {csv_file} غير موجود. تأكد من رفعه.")
-
+        st.error(f"❌ ملف {CSV_FILE} مفقود!")
 with col2:
-    if os.path.exists(json_file):
-        st.success(f"✅ تم العثور على ملف الخريطة: {json_file}")
+    if os.path.exists(JSON_FILE):
+        st.success(f"✅ تم العثور على {JSON_FILE}")
     else:
-        st.error(f"❌ ملف {json_file} غير موجود. تأكد من رفعه.")
+        st.error(f"❌ ملف {JSON_FILE} مفقود!")
 
-# 3. محاولة تشغيل الخريطة والبيانات
+# محاولة التشغيل
 try:
-    if os.path.exists(csv_file):
-        df = pd.read_csv(csv_file)
+    if os.path.exists(CSV_FILE):
+        df = pd.read_csv(CSV_FILE)
         st.metric("إجمالي البلاغات", len(df))
         
-        # خريطة بسيطة
+        # إنشاء الخريطة
         m = folium.Map(location=[26.4207, 50.0888], zoom_start=11)
         
+        # تحميل الخريطة لو موجودة
+        if os.path.exists(JSON_FILE):
+            with open(JSON_FILE, "r", encoding="utf-8") as f:
+                geo_data = json.load(f)
+            folium.GeoJson(geo_data, name="الأحياء").add_to(m)
+        
+        # إضافة النقاط
         for _, row in df.iterrows():
             folium.CircleMarker(
                 location=[row['latitude'], row['longitude']],
-                radius=4, color='red', fill=True
+                radius=5, color='red', fill=True,
+                popup=f"بلاغ رقم: {row.get('meter_name', 'غير معروف')}"
             ).add_to(m)
         
-        st_folium(m, width=1000, height=500)
-        st.balloons() 
-        
+        st_folium(m, width=1200, height=500)
+        st.balloons()
+    else:
+        st.warning("يرجى التأكد من رفع الملفات بأسماء إنجليزية (data.csv و map.json)")
+
 except Exception as e:
-    st.warning(f"هناك مشكلة في محتوى الملفات: {e}")
+    st.error(f"🚨 خطأ فني: {e}")
+
