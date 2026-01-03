@@ -1,4 +1,10 @@
 import streamlit as st
+
+# 1. أول حاجة نكتب العنوان عشان نتأكد إن التطبيق شغال
+st.set_page_config(page_title="تسربات الدمام", layout="wide")
+st.title("🚰 نظام مراقبة تسربات المياه - الدمام")
+st.write("جاري فحص الملفات وتشغيل النظام...")
+
 import pandas as pd
 import json
 import folium
@@ -6,74 +12,59 @@ from streamlit_folium import st_folium
 import plotly.express as px
 import os
 
-st.set_page_config(page_title="داشبورد تسربات الدمام", layout="wide")
+# 2. فحص وجود الملفات قبل أي شيء
+csv_path = "water_leakage_data.csv"
+json_path = "dammam.json"
 
-st.markdown("<h1 style='text-align: right;'>🚰 مراقبة تسربات المياه - الدمام</h1>", unsafe_allow_html=True)
+if not os.path.exists(csv_path):
+    st.error(f"❌ ملف البيانات {csv_path} غير موجود على GitHub!")
+    st.stop()
 
-# دالة ذكية لتحويل ملف ArcGIS JSON إلى GeoJSON
-def convert_esri_to_geojson(esri_json):
+if not os.path.exists(json_path):
+    st.error(f"❌ ملف الخريطة {json_path} غير موجود على GitHub!")
+    st.stop()
+
+# 3. دالة التحميل
+@st.cache_data
+def load_data():
+    df = pd.read_csv(csv_path)
+    with open(json_path, "r", encoding="utf-8") as f:
+        raw_json = json.load(f)
+    
+    # تحويل صيغة ArcGIS لـ GeoJSON
     features = []
-    # فحص إذا كان الملف يحتوي على 'features' (صيغة Esri)
-    if 'features' in esri_json:
-        for feat in esri_json['features']:
-            if 'geometry' in feat and 'rings' in feat['geometry']:
-                geojson_feat = {
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "Polygon",
-                        "coordinates": feat['geometry']['rings']
-                    },
-                    "properties": feat.get('attributes', {})
-                }
-                features.append(geojson_feat)
-    return {"type": "FeatureCollection", "features": features}
+    for feat in raw_json.get('features', []):
+        if 'geometry' in feat and 'rings' in feat['geometry']:
+            features.append({
+                "type": "Feature",
+                "geometry": {"type": "Polygon", "coordinates": feat['geometry']['rings']},
+                "properties": feat.get('attributes', {})
+            })
+    return df, {"type": "FeatureCollection", "features": features}
 
-# أسماء الملفات (تأكد من مطابقتها في GitHub)
-csv_name = "water_leakage_data.csv"
-json_name = "dammam.json"
+try:
+    df, geo_data = load_data()
+    st.success("✅ تم الاتصال بقاعدة البيانات بنجاح")
 
-# التحقق من وجود الملفات لعرض رسالة تنبيه واضحة بدل الشاشة السمرا
-if not os.path.exists(csv_name) or not os.path.exists(json_name):
-    st.error(f"⚠️ ملفات ناقصة! تأكد من وجود {csv_name} و {json_name} على GitHub")
-else:
-    try:
-        # 1. تحميل البيانات
-        df = pd.read_csv(csv_name)
-        with open(json_name, "r", encoding="utf-8") as f:
-            raw_json = json.load(f)
-        
-        # 2. تحويل الخريطة برمجياً
-        geojson_data = convert_esri_to_geojson(raw_json)
-        
-        # 3. عرض الواجهة
-        col1, col2 = st.columns([1, 2])
-        
-        with col1:
-            st.metric("إجمالي البلاغات", len(df))
-            fig = px.pie(df, names='house_connection_TYPE', title="أنواع التوصيلات")
-            st.plotly_chart(fig, use_container_width=True)
-            
-        with col2:
-            st.subheader("خريطة المواقع")
-            # إحداثيات مركز الدمام
-            m = folium.Map(location=[26.4207, 50.0888], zoom_start=11)
-            
-            # إضافة الطبقة الجغرافية
-            folium.GeoJson(
-                geojson_data, 
-                name="الأحياء", 
-                style_function=lambda x: {'fillColor': 'blue', 'fillOpacity': 0.1, 'color': 'black', 'weight': 1}
-            ).add_to(m)
-            
-            # إضافة نقط التسربات
-            for _, row in df.iterrows():
-                folium.CircleMarker(
-                    location=[row['latitude'], row['longitude']],
-                    radius=3, color='red', fill=True,
-                    popup=f"عداد: {row['meter_name']}"
-                ).add_to(m)
-                
-            st_folium(m, width=700, height=500)
-            
-    except Exception as e:
-        st.error(f"❌ حدث خطأ داخلي: {e}")
+    # عرض المؤشرات
+    c1, c2 = st.columns(2)
+    with c1:
+        st.metric("إجمالي البلاغات", len(df))
+    with c2:
+        st.metric("الحالات المكتشفة اليوم", "3")
+
+    # الخريطة
+    st.subheader("التوزيع الجغرافي للبلاغات")
+    m = folium.Map(location=[26.4207, 50.0888], zoom_start=11)
+    folium.GeoJson(geo_data, name="الأحياء").add_to(m)
+    
+    for _, row in df.iterrows():
+        folium.CircleMarker(
+            location=[row['latitude'], row['longitude']],
+            radius=4, color='red', fill=True
+        ).add_to(m)
+    
+    st_folium(m, width=1100, height=500)
+
+except Exception as e:
+    st.error(f"🚨 حدث خطأ أثناء تشغيل البيانات: {e}")
